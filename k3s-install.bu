@@ -1,0 +1,112 @@
+variant: fcos
+version: 1.4.0
+
+passwd:
+  users:
+    - name: core
+      ssh_authorized_keys:
+        - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDytfbbDrd6G6EfOjq93qZ2+ND95/1/y9ly75EFcR3fj1gtqLG3LiFssyFkf79tamlE8+KgUWE8Kb4a8QqKEyX0vwdYytTHsa4q8ifaq2vy6APnYvGeXy6mVUWzpgT+yOK1UU9iq3s4dlS5WgQUHJ+10dbs8TWw/jgsqjKCJhUI/rT3lZg9yBZ+BSsux2aKZjs7g7+94qk1ZDVADtBs5jF34N6I2CCLy8DfjBsJ0arMdOrZS5TCyxM+FUDGqN/DMkA14907NRgqjxk5QOlLAsi/qN3g6ZRDx+nCMBUTC+ALxizaQeAZhELyMisi+TJbDGQoN7IJC8i/mz8KKmt/3cnJ christian.danscheid@outlook.de
+
+systemd:
+  units:
+  - name: getty@tty1.service
+    dropins:
+    - name: autologin-core.conf
+      contents: |
+        [Service]
+        ExecStart=
+        ExecStart=-/usr/sbin/agetty --autologin core --noclear %I $TERM
+
+  - name: run-k3s-installer.service
+    enabled: true
+    contents: |
+      [Unit]
+      After=network-online.target
+      Wants=network-online.target
+      Before=systemd-user-sessions.service zincati.service
+      OnFailure=emergency.target
+      OnFailureJobMode=replace-irreversibly
+      ConditionPathExists=!/var/lib/k3s-installed
+
+      [Service]
+      RemainAfterExit=yes
+      Type=oneshot
+      ExecStart=/usr/local/bin/run-k3s-installer
+      ExecStartPost=/usr/bin/touch /var/lib/k3s-installed
+      StandardOutput=kmsg+console
+      StandardError=kmsg+console
+
+      [Install]
+      WantedBy=multi-user.target
+
+storage:
+  links:
+    - path: /etc/localtime
+      target: ../usr/share/zoneinfo/Europe/Berlin
+      
+  files:
+    - path: /etc/hostname
+      mode: 0644
+      contents:
+        inline: fcos0
+
+    - path: /etc/vconsole.conf
+      mode: 0644
+      contents:
+        inline: KEYMAP=de
+
+    - path: /usr/local/bin/run-k3s-installer
+      mode: 0755
+      contents:
+        inline: |
+          #!/usr/bin/env sh
+          set -xe
+
+          rpm-ostree install -y --apply-live https://github.com/k3s-io/k3s-selinux/releases/download/v1.2.stable.2/k3s-selinux-1.2-2.el8.noarch.rpm
+
+          export K3S_KUBECONFIG_MODE="644"
+          export INSTALL_K3S_EXEC=" --disable servicelb"
+
+          curl -sfL https://get.k3s.io | sh -
+          exit 0
+
+
+    - path: /var/lib/rancher/k3s/server/manifests/fleet.yaml
+      mode: 0644
+      contents:
+        inline: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: fleet-system
+          ---
+          apiVersion: helm.cattle.io/v1
+          kind: HelmChart
+          metadata:
+            name: fleet
+            namespace: kube-system
+          spec:
+            targetNamespace: fleet-system
+            chart: https://github.com/rancher/fleet/releases/download/v0.5.0/fleet-0.5.0.tgz
+          ---
+          apiVersion: helm.cattle.io/v1
+          kind: HelmChart
+          metadata:
+            name: fleet-crd
+            namespace: kube-system
+          spec:
+            targetNamespace: fleet-system
+            chart: https://github.com/rancher/fleet/releases/download/v0.5.0/fleet-crd-0.5.0.tgz
+
+    - path: /var/lib/rancher/k3s/server/manifests/homelab.gitrepo.yaml
+      mode: 0644
+      contents:
+        inline: |
+          apiVersion: fleet.cattle.io/v1alpha1
+          kind: GitRepo
+          metadata:
+            name: homelab
+            namespace: fleet-local
+          spec:
+            repo: "https://github.com/webD97/homelab-gitops"
+            branch: main

@@ -1,0 +1,51 @@
+variant: fcos
+version: 1.4.0
+
+systemd:
+  units:
+  - name: run-coreos-installer.service
+    enabled: true
+    contents: |
+      [Unit]
+      After=network-online.target
+      Wants=network-online.target
+      Before=systemd-user-sessions.service
+      OnFailure=emergency.target
+      OnFailureJobMode=replace-irreversibly
+
+      [Service]
+      RemainAfterExit=yes
+      Type=oneshot
+      ExecStart=/usr/local/bin/run-coreos-installer
+      ExecStartPost=/usr/bin/systemctl --no-block reboot
+      StandardOutput=kmsg+console
+      StandardError=kmsg+console
+
+      [Install]
+      WantedBy=multi-user.target
+
+storage:
+  files:
+    - path: /home/core/config.ign
+      mode: 0600
+      contents:
+        local: k3s-install.ign
+
+    - path: /usr/local/bin/run-coreos-installer
+      mode: 0755
+      contents:
+        inline: |
+          #!/usr/bin/bash
+          set -x
+
+          ignition_file='/home/core/config.ign'
+          firstboot_args='console=tty0'
+          install_device=/dev/sda
+          
+          if ! coreos-installer install --offline --firstboot-args=${firstboot_args} --ignition=${ignition_file} ${install_device}; then
+            echo "Install Failed!"
+            exit 1
+          fi
+            
+          echo "Install Succeeded!"
+          exit 0
